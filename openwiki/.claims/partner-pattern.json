@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:7cefd17f0bbc8a293bf99a67a3f186939e1a38966bb7b9b25dcf0ec80ed1c840",
+  "pageVersion": "sha256:38ba58bcdb1aad86b5f15e9b88238fc2a0dd6d95babe53abe1cf5520f8faaa40",
   "claims": [
     {
       "id": "claim_7c2a1600fd294471a122d693305b38f8",
@@ -42,11 +42,11 @@
     },
     {
       "id": "claim_abb3b526d5bf49b19dd0d5aaf8c8b6f0",
-      "statement": "Streaming _stream method yields ChatGenerationChunk objects containing AIMessageChunk with incremental content tokens. It enables streaming in the API request, iterates provider events, extracts deltas, and calls run_manager.on_llm_new_token for observability.",
+      "statement": "Streaming _stream method yields ChatGenerationChunk objects containing AIMessageChunk with incremental content tokens. It enables streaming in the API request, iterates provider events, extracts deltas, creates chunks with run_manager.on_llm_new_token callbacks for observability, and wraps chunks in ChatGenerationChunk.",
       "evidence": [
         {
-          "resource": "repo://libs/partners/anthropic/langchain_anthropic/chat_models.py#L1862-L1910",
-          "version": "repo-lines-v1:sha256:f0e8c1f1266d35446c33b5ddf1c42ddb2d131703692ba8b427bf5a1789d82900:eyJzZWxlY3RlZExpbmVDb3VudCI6NDksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkzN2Q4Mzk0YzBjZjdhYWJiZTRhODg1YjA1NGE4ODI5YWQ3NGRhYmU1MGVmYzQ5NDg3NWJjZGVmNDQyMTA5YjEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjgxN2VhMzk1NjdjYTc0MTQyOWI1MGRiNDg4YmQ1NDBiYzJhNmJlMmFjZDhlMzU2MjA2ZTdlYTdjOGFhNzAxYzEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQxODdkNTM4ZThhNDJlMzk2NmEzZDVhMGJmMjAxZGNiZDZkZGYwOTFkMzY3ZmY5OTJmMmNlMmQzZjMzOTU4NjgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjI0MmNjNmEzMGZlNjE0NGYyZjAxMzdhNzk3YzU2N2IxMmJkNTgyNWZhN2ExNGVmOTc2MWQzMzc4MDljY2M0YmQifQ"
+          "resource": "repo://libs/partners/anthropic/langchain_anthropic/chat_models.py#L2195-L2243",
+          "version": "repo-lines-v1:sha256:6a3115a4483a456d9ce3a945bea12014acb90e2ae3020ab3ade6b2804c006a7b:eyJzZWxlY3RlZExpbmVDb3VudCI6NDksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkzN2Q4Mzk0YzBjZjdhYWJiZTRhODg1YjA1NGE4ODI5YWQ3NGRhYmU1MGVmYzQ5NDg3NWJjZGVmNDQyMTA5YjEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjgxN2VhMzk1NjdjYTc0MTQyOWI1MGRiNDg4YmQ1NDBiYzJhNmJlMmFjZDhlMzU2MjA2ZTdlYTdjOGFhNzAxYzEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjQxODdkNTM4ZThhNDJlMzk2NmEzZDVhMGJmMjAxZGNiZDZkZGYwOTFkMzY3ZmY5OTJmMmNlMmQzZjMzOTU4NjgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjI0MmNjNmEzMGZlNjE0NGYyZjAxMzdhNzk3YzU2N2IxMmJkNTgyNWZhN2ExNGVmOTc2MWQzMzc4MDljY2M0YmQifQ"
         }
       ]
     },
@@ -84,19 +84,11 @@
     },
     {
       "id": "claim_a7fa4aec0f874ffaa86e9395f1870be7",
-      "statement": "Provider packages reside in /libs/partners/provider_name/ with a langchain_provider_name module containing chat_models/base.py (or chat_models.py at module root), data/ with profiles and augmentations, tests/ for unit and integration tests, and standard files: pyproject.toml, Makefile, README, LICENSE, uv.lock. The pyproject.toml specifies langchain-core>=1.6.10,<2.0.0, provider SDK dependencies with locked minimum versions (e.g., openai>=2.45.0, anthropic>=0.120.0), and test dependencies including langchain-tests>=1.1.9,<2.0.0 with version constraints. Local packages are referenced via [tool.uv.sources].",
+      "statement": "Provider packages reside in /libs/partners/provider_name/ with a langchain_provider_name module containing chat_models/base.py (or chat_models/__init__.py at module root), data/ with profiles and augmentations, tests/ for unit and integration tests, and standard files: pyproject.toml, Makefile, README, LICENSE, uv.lock. The pyproject.toml specifies langchain-core (minimum version varies by provider: >=1.7.3 for Anthropic, >=1.7.0 for OpenAI), provider SDK dependencies with locked minimum versions (e.g., openai>=2.45.0, anthropic>=0.120.0), and test dependencies including langchain-tests>=1.1.9,<2.0.0 with version constraints. Local packages are referenced via [tool.uv.sources].",
       "evidence": [
         {
-          "resource": "repo://libs/partners/anthropic/langchain_anthropic/chat_models.py#L1-L100",
-          "version": "repo-lines-v1:sha256:502f993a9d1ac1ea937c1ce25d63c38881cddb2c93d12d3c9a2ced5efe626fa0:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAwLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiIxNTBhNDllZmI2N2JmMzZhNTk4OGExOGYwZTEzMDQ3NDBjMDY3NTRhYWIzMzMwNWIxZDE3ZTkxY2NiMWYyODhmIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJkMzI4MzRhYWZiNmI4NTkzNmRhZjQwN2E2N2I4OTdkMzVhMzRjZDJkNTFiMmYxNzgyNWUzZjJkNWQ1NTJjNTRhIiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MywiZm9sbG93aW5nQ29udGV4dEhhc2giOiJmODRkYWFlMzc5NzhjOThhODI2NTRjYWMyMzVmYjk2YjlhMmEwMDM1M2Q1ZDIzYjZlOWFjYTNmNjFhNDVlOWQzIn0"
-        },
-        {
           "resource": "repo://libs/partners/anthropic/pyproject.toml#L23-L29",
-          "version": "repo-lines-v1:sha256:78dcd4c8507aa611182db3446e8e972878d7af6d237dc770f00bbf069f7db6f5:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTQ0YzYzYjU5MDVmZjYyNTIzMjI1YTAzYzNhN2U3YjFiNzI2MzY0MGRmZmE0NzgzODcwZjVmODMwNjkxZGI3ZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjk0MTZlMDlmNzhiYTMxNmMwMzI1NjgyMTNiODU1ZWU3NTZlNDE1NjVkOTE4ZjA5NTE5YzgxZmQ2MjBmNDA2MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzBlM2JkZDc0YWJkOGViYjVjMDMyNTNkNGZmNTA2ZmNhZmNjYWExZDkyMDVlMWQxZmMzMzUzOGY2MTViMTI1OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWI5NGZiMGMzNDIyZDFmMmRhYTgzYTNhMTNmMGY3NjA0NTc4M2RkNDE5NTk5NTdhZDdiNThmMjc4YTk4ODQ5MCJ9"
-        },
-        {
-          "resource": "repo://libs/partners/openai/langchain_openai/chat_models/__init__.py#L1-L6",
-          "version": "repo-lines-v1:sha256:b69d77fd9aa09cdc548568ae5103af5800deaaf4e2742b2ca8516e99e9a3b4bb:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTQ2YzllZmI2M2QyOWI5ZGViNDA4NDBiMDI0MGUxMmM0N2NlNDNmZWU0NmMwNGYxYWE4N2U1ZWVhODU0ODUwMCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiMjZkMjAyZmFmYmI0ZGEzYWU4OGFhYTkwMzcxNDgwODg5NDZhMzFkZDYzNzhlZjNjZmIzOGVhYWQ0MzE4NGE3MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+          "version": "repo-lines-v1:sha256:5a647d70c5f5ea3037c75a7c23410322ad3ca76132bcc0a6b6a394938aab7688:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYzZlODllNTc4MWRlYzc5M2EwYWRlNTkwY2UzZTdiZjg5MThiMjMzYWYwMjNiNGI1OTYwNDVjNmE5NzIzMTg4OSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiZjk0MTZlMDlmNzhiYTMxNmMwMzI1NjgyMTNiODU1ZWU3NTZlNDE1NjVkOTE4ZjA5NTE5YzgxZmQ2MjBmNDA2MCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiMzBlM2JkZDc0YWJkOGViYjVjMDMyNTNkNGZmNTA2ZmNhZmNjYWExZDkyMDVlMWQxZmMzMzUzOGY2MTViMTI1OCIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZWI5NGZiMGMzNDIyZDFmMmRhYTgzYTNhMTNmMGY3NjA0NTc4M2RkNDE5NTk5NTdhZDdiNThmMjc4YTk4ODQ5MCJ9"
         },
         {
           "resource": "repo://libs/partners/openai/pyproject.toml#L23-L30",
@@ -157,6 +149,6 @@
   ],
   "verification": {
     "by": "openwiki/0.5.0",
-    "at": "2026-10-29T08:20:01.046Z"
+    "at": "2026-11-03T08:17:58.636Z"
   }
 }

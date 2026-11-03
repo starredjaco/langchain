@@ -3,9 +3,6 @@ type: "Operations Reference"
 title: "CI/CD Operations and Release Management"
 description: "Operational runbook for CI/CD workflows, troubleshooting, and release procedures."
 tags: [ci, cd, release, automation, github-actions, pypi]
-verified:
-  - by: openwiki/0.5.0
-    at: 2026-10-29T08:20:01.046Z
 sources:
   - id: openwiki-source-34e57b5a3a0c875639ab72a7
     resource: repo://.github/scripts/check_diff.py
@@ -19,7 +16,10 @@ sources:
     resource: repo://.github/workflows/openwiki-update.yml
   - id: openwiki-source-f8781d847f6481a966a44a68
     resource: repo://.github/workflows/pr_labeler.yml
-generated: { by: "openwiki/0.5.0", at: "2026-10-29T08:20:01.046Z" }
+generated: { by: "openwiki/0.5.0", at: "2026-11-03T08:17:58.636Z" }
+verified:
+  - by: openwiki/0.5.0
+    at: 2026-11-03T08:17:58.636Z
 ---
 
 
@@ -195,6 +195,106 @@ The workflow applies labels in this order:
 Uses concurrency group per PR number with separate handling:
 - `opened` events use a dedicated concurrency key to prevent losing tier labels (full serialization)
 - Other events (`synchronized`, `reopened`, `edited`) allow cancellation
+
+---
+
+## Code Quality: Linting & Type Checking
+
+### Workflow: `_lint.yml` (Reusable)
+
+The linting workflow enforces code quality standards across all packages using `ruff` and `mypy`.
+
+**Invocation:** Called by `check_diffs.yml` for each affected package with its Python version
+
+**Key Features:**
+- Frozen UV cache to ensure reproducible builds
+- Separate linting for package and test code
+- Intentionally split into separate invocations per Python version for matrix testing
+
+**Linting Steps:**
+
+1. **Install lint & typing dependencies**
+   - Runs `uv sync --group lint --group typing`
+   - Installs ruff, mypy, and pre-commit hooks
+
+2. **Analyze package code**
+   - Runs `make lint_package`
+   - Executes `ruff check` for code style and format issues (PEP 8, import sorting, etc.)
+   - Runs `mypy` for static type analysis (catches type mismatches before runtime)
+   - Ruff output formatted as GitHub annotations for inline PR feedback
+
+3. **Install test dependencies**
+   - Core packages: `uv sync --inexact --group test`
+   - Partner packages: `uv sync --inexact --group test --group test_integration`
+
+4. **Analyze test code**
+   - Runs `make lint_tests`
+   - Applies same ruff and mypy checks to test files
+
+**Common Ruff Rules:**
+- `E` — PEP 8 formatting errors
+- `F` — Pyflakes (unused imports, undefined names)
+- `I` — Import sorting (isort compatibility)
+- `W` — PEP 8 warnings
+
+**Mypy Strict Mode:**
+- Packages in `libs/core` typically enforce strict type checking
+- Tests may use `ignore_errors` selectively for mocking and fixtures
+
+---
+
+## PR Title Validation: Conventional Commits
+
+### Workflow: `pr_lint.yml`
+
+Enforces Conventional Commits 1.0.0 format for all pull request titles to maintain a clear, machine-readable change history.
+
+**Trigger:** PR opened, edited, or synchronized
+
+**Format Requirements:**
+
+```
+<type>[optional scope]: <description>
+```
+
+**Allowed Types:**
+- `feat` — New feature (MINOR in semver)
+- `fix` — Bug fix (PATCH in semver)
+- `docs` — Documentation-only changes
+- `style` — Formatting, linting; no code or type refactors
+- `refactor` — Code change (neither bug fix nor new feature)
+- `perf` — Performance improvements
+- `test` — Adding/correcting tests
+- `build` — Build system or dependency changes
+- `ci` — CI/CD configuration changes
+- `chore` — Other changes (package scripts, tooling, etc.)
+- `revert` — Reverts a previous commit
+- `release` — Prepare a new release
+- `hotfix` — Urgent fix
+
+**Allowed Scopes (optional):**
+- Core packages: `core`, `langchain`, `langchain-classic`, `model-profiles`, `standard-tests`, `text-splitters`
+- Partners: `anthropic`, `chroma`, `deepseek`, `exa`, `fireworks`, `groq`, `huggingface`, `mistralai`, `nomic`, `ollama`, `openai`, `openrouter`, `perplexity`, `qdrant`, `typesafe`, `xai`
+- Meta: `docs`, `infra`, `deps`, `partners`
+
+**Scope Rules:**
+- Multiple scopes separated by comma: `feat(core,langchain): add feature to both`
+- PRs touching `libs/langchain` **must** use the `langchain` scope
+- Empty scope parentheses are rejected: `feat(): ...` ❌
+
+**Examples:**
+```
+feat(core): add multi-tenant support
+fix(langchain): resolve error in agent
+docs(openai): update API usage examples
+perf(core,langchain): optimize prompt caching
+release(core): 1.2.0
+```
+
+**Enforcement:**
+- Release commits should use format: `release(scope): x.y.z` with no body/footer
+- Breaking changes append `!` after type/scope: `feat!: drop Python 3.9 support`
+- Validation uses `amannn/action-semantic-pull-request` action
 
 ---
 
@@ -471,6 +571,7 @@ LangSmith, OpenAI (with Azure deployments), Anthropic, Google Cloud (Vertex AI, 
 - **dangerous-nonmaster-release** (boolean): Allow release from non-master branch (use only for hotfixes)
 - **allow-prereleases** (boolean): Allow prerelease dependencies during testing
 - **skip-prior-published-package-checks** (choice): Skip backward-compatibility checks for specific partners
+- **release-notes** (string): Optional text prepended to auto-generated release notes
 
 ### Safety Model
 
@@ -500,6 +601,210 @@ The release workflow uses **layered safety gates**:
 6. **Manual approval** (Release environment)
    - Release job requires environment approval
    - Adds human gate before production publish
+
+---
+
+## Manual Release Runbook
+
+This section provides step-by-step instructions for performing a production release of a LangChain package to PyPI.
+
+### Pre-Release Checklist
+
+**Before triggering the release workflow:**
+
+1. **Verify branch and commit**
+   - Ensure you're on the `master` branch
+   - Run `git pull` to fetch latest commits
+   - Confirm all required tests pass on the current commit
+
+2. **Update version number**
+   - Edit `libs/<package>/pyproject.toml`
+   - Increment version according to semver:
+     - `X.0.0` for major feature release (breaking changes)
+     - `x.Y.0` for minor release (new features)
+     - `x.y.Z` for patch release (bug fixes)
+   - Ensure your local commit includes the version change
+
+3. **Create a pull request with version bump** (if not already merged)
+   - Commit: `release(package-name): X.Y.Z`
+   - Ensure PR title follows Conventional Commits format
+   - Merge PR and pull latest changes
+
+4. **Test locally**
+   - Navigate to package: `cd libs/<package>`
+   - Run `make tests` to verify unit tests pass
+   - Run `make lint` to verify code quality
+   - For partner packages: locally run `make integration_tests` if you have API keys
+
+### Triggering the Release Workflow
+
+**Via GitHub Actions UI (recommended for most users):**
+
+1. Open `.github/workflows/_release.yml` in the repository
+2. Click **"Run workflow"** button
+3. Fill in the form:
+   - **working-directory:** Select package from dropdown (e.g., `core`, `openai`, `anthropic`)
+   - **release-version:** Enter exact version number (e.g., `0.1.5`, `1.0.0-alpha.1`)
+   - **dangerous-nonmaster-release:** Leave unchecked (only for hotfixes)
+   - **allow-prereleases:** Check only if releasing a prerelease version (alpha, beta, rc)
+   - **skip-prior-published-package-checks:** Leave as `none` (skip only if specific partner tests are broken)
+   - **release-notes:** Optional; prepends custom text to auto-generated changelog
+4. Click **"Run workflow"**
+
+**Key Points:**
+- The dropdown automatically resolves short names (e.g., `core` → `libs/core`, `openai` → `libs/partners/openai`)
+- Version must **exactly match** `pyproject.toml` or build job will fail
+- The workflow requires approval from Release environment (prevents accidental production releases)
+
+### Release Workflow Execution
+
+Once triggered, the workflow executes these stages:
+
+**1. Build & Validation (5-10 min)**
+- Validates branch is master (unless hotfix override used)
+- Validates version matches pyproject.toml
+- Checks PyPI: version must not already exist
+- Builds wheel and source distributions
+- Uploads artifacts for downstream validation
+
+**2. Release Notes Generation (2-3 min)**
+- Generates changelog from git log since last tag
+- Validates git tag doesn't already exist
+- Outputs release body for GitHub release
+
+**3. Pre-Release Checks (10-20 min)**
+- Downloads built wheel
+- Runs unit tests against installed wheel
+- Tests against minimum supported dependency versions
+- For partner packages: runs integration tests with live API credentials
+- For prerelease versions: allows prerelease transitive dependencies
+
+**4. TestPyPI Validation (2-5 min)**
+- Publishes wheel to test.pypi.org (staging PyPI)
+- Manual verification step (optional but recommended)
+
+**5. Backward Compatibility Tests** (conditional, 10-20 min)
+- **For libs/core releases only:**
+  - Fetches latest anthropic and openai partner packages from PyPI
+  - Installs new core wheel against published partners
+  - Runs partner unit and integration tests
+  - Ensures new core doesn't break existing partner ecosystem
+
+**6. External Project Testing** (conditional, 10-15 min)
+- **For libs/core and libs/langchain_v1 releases only:**
+  - Checks out external projects (e.g., deepagents)
+  - Installs new wheel
+  - Runs their test suites
+  - Ensures external dependent projects still work
+
+**7. Approval & Production Publish (1-2 min)**
+- Requires manual approval from Release environment
+- Click "Review deployments" button to approve or deny
+- Upon approval, publishes to pypi.org
+- Creates GitHub release with changelog and distribution files
+
+### Handling Special Cases
+
+**Prerelease Versions:**
+- Format: `1.0.0-alpha.1`, `1.0.0-beta.2`, `1.0.0rc1`
+- Set **allow-prereleases** to `true` if your package depends on prerelease versions of other packages
+- Example: `langchain-core` releases an alpha version with a prerelease `langgraph` dependency
+
+**Hotfix from Non-Master Branch:**
+- Set **dangerous-nonmaster-release** to `true`
+- Only use for critical bugs that need immediate release
+- After release, create a PR to merge hotfix back to master
+- Consider if the fix should be cherry-picked to master instead
+
+**Skipping Partner Compatibility Tests:**
+- Set **skip-prior-published-package-checks** to `anthropic`, `openai`, or `all`
+- Use only if a partner API has changed and you need to unblock a core release
+- Document in PR why the test was skipped
+- Plan to follow up with partner fixes
+
+### Post-Release Verification
+
+After the workflow completes:
+
+1. **Verify PyPI publication**
+   - Visit `https://pypi.org/project/langchain-<package-name>/`
+   - Confirm new version appears
+   - Check that files (wheel + source) are available for download
+
+2. **Verify GitHub release**
+   - Check `https://github.com/langchain-ai/langchain/releases`
+   - Confirm release tag exists and includes changelog
+   - Files should be attached to release
+
+3. **Test installation**
+   - Run `pip install langchain-<package-name>==<version>` in a clean environment
+   - Import the package and verify it works
+   - Example: `python -c "import langchain_core; print(langchain_core.__version__)"`
+
+4. **Notify users (if applicable)**
+   - For major packages (core, langchain), post release notes to community channels
+   - Highlight breaking changes, new features, migration guides
+   - Link to full changelog on GitHub releases
+
+### Failure Recovery
+
+**Build job fails (version mismatch, already published):**
+- Fix version in `pyproject.toml`
+- Create new PR with corrected version
+- Re-trigger workflow after PR merges
+
+**Pre-release checks fail (tests, API credentials missing):**
+- Examine logs to identify failure
+- For test failures: fix code and merge PR, then retry workflow
+- For API credential failures: verify repository secrets are up-to-date
+- Use TestPyPI link to download built wheel for manual testing
+
+**Backward compatibility tests fail (core release breaks partner):**
+- Either fix your core change to maintain backward compatibility
+- Or explicitly skip the check with `skip-prior-published-package-checks=anthropic` (with documentation)
+- Follow up with partner team to update their code if intentional
+
+**Workflow approval timed out:**
+- If Release environment approval times out, re-run the workflow or manually approve the deployment
+- Check "Review deployments" link in the workflow summary
+
+---
+
+## Per-Package Versioning Architecture
+
+Each package in the LangChain monorepo maintains independent version control:
+
+**Version Storage:**
+- Each package has its own `pyproject.toml` with independent version number
+- Examples:
+  - `libs/core/pyproject.toml` → `langchain-core==0.1.5`
+  - `libs/partners/openai/pyproject.toml` → `langchain-openai==0.0.8`
+  - `libs/langchain/pyproject.toml` → `langchain-classic==0.0.1`
+
+**Dependency Constraints:**
+- Packages specify minimum and maximum version bounds on their dependencies in `pyproject.toml`
+- Example: `langchain-core>=0.1.0,<0.2.0`
+- Ranges ensure compatibility while allowing dependency updates
+
+**Lockfile Management:**
+- Each package has its own `uv.lock` file (uv's lockfile format, similar to poetry.lock)
+- Frozen during CI to ensure reproducible builds
+- Updated locally with `uv lock --upgrade` before committing version changes
+
+**Release Independence:**
+- Packages can be released independently at different times
+- No requirement to coordinate version numbers across packages
+- Partner packages can release without waiting for core updates
+
+---
+
+## Standard Tests & Model Profiles
+
+**libs/standard-tests:**
+A shared test library that contains common test patterns and fixtures used across core and partner packages. When releasing `libs/core`, changes to standard-tests are automatically tested as part of the backward compatibility checks.
+
+**libs/model-profiles:**
+Defines LLM model profiles and compatibility information. Changes to model profiles trigger extended tests on core packages to ensure compatibility matrices remain accurate.
 
 ---
 

@@ -5,7 +5,7 @@ description: "Complete technical reference for LangChain's GitHub Actions workfl
 tags: [ci, workflows, github-actions, reference, automation]
 verified:
   - by: openwiki/0.5.0
-    at: 2026-10-29T08:20:01.046Z
+    at: 2026-11-03T08:17:58.636Z
 sources:
   - id: openwiki-source-c92cc62695c6def991956428
     resource: repo://.github/workflows/_release.yml
@@ -13,7 +13,7 @@ sources:
     resource: repo://.github/workflows/check_diffs.yml
   - id: openwiki-source-9069a5dd5fbb579fbd5470ce
     resource: repo://.github/workflows/integration_tests.yml
-generated: { by: "openwiki/0.5.0", at: "2026-10-29T08:20:01.046Z" }
+generated: { by: "openwiki/0.5.0", at: "2026-11-03T08:17:58.636Z" }
 ---
 
 ## Overview
@@ -24,7 +24,8 @@ LangChain's CI/CD infrastructure consists of interconnected GitHub Actions workf
 - **`check_diffs.yml`** — PR CI with intelligent change detection and dynamic test matrix
 - **`integration_tests.yml`** — Scheduled daily integration tests against live APIs
 - **`_release.yml`** — Multi-stage release workflow with validation gates
-- **Supporting workflows** — Linting, testing, validation, PR labeling, and infrastructure checks
+- **`_lint.yml`** — Reusable linting workflow (ruff, mypy, pre-commit)
+- **Supporting workflows** — Testing, validation, PR labeling, and infrastructure checks
 
 ---
 
@@ -122,6 +123,7 @@ Each output is a JSON array of job configurations:
 4. Ignores partners: `huggingface` (CI instability)
 5. Infrastructure changes (`.github/workflows/`, `.github/actions/`, etc.) trigger extended tests on all core packages
 6. Diffs ≥300 files → run all tests (fallback for truncated diffs)
+7. Standard-tests changes trigger all partner packages that depend on standard-tests
 
 ### Python Version Matrices
 
@@ -164,6 +166,54 @@ with:
 
 ---
 
+## Linting Workflow: `_lint.yml`
+
+**Reusable workflow called by** `check_diffs.yml`, triggered for changed packages
+
+### Inputs
+
+```yaml
+inputs:
+  working-directory:
+    type: string
+    required: true
+    description: "Package directory to lint"
+  python-version:
+    type: string
+    required: true
+    description: "Python version to use"
+```
+
+### Environment Variables
+
+```yaml
+env:
+  WORKDIR: ${{ inputs.working-directory == '' && '.' || inputs.working-directory }}
+  RUFF_OUTPUT_FORMAT: github  # Inline annotations in PR
+  UV_FROZEN: "true"           # Use frozen dependencies
+```
+
+### Job: `build` (Linting job)
+
+**Runs on:** `ubuntu-latest`, 20 minute timeout
+
+**Steps:**
+1. Checkout code
+2. Setup Python + UV (with cache)
+3. **Install lint & typing dependencies:** `uv sync --group lint --group typing`
+4. **Analyze package code with linters:**
+   - Runs `make lint_package` (ruff, mypy, pre-commit)
+5. **Install test dependencies** (non-partners only): `uv sync --inexact --group test`
+6. **Install test dependencies** (partners): `uv sync --inexact --group test --group test_integration`
+7. **Analyze test code with linters:** `make lint_tests`
+
+**Linting tools invoked:**
+- **ruff** — Fast Python linter (code style, imports, complexity)
+- **mypy** — Static type checker
+- **pre-commit** — Framework for git hooks (additional checks)
+
+---
+
 ### Job: `test`
 
 **Reusable workflow:** `./.github/workflows/_test.yml`
@@ -180,6 +230,8 @@ with:
 ```
 
 **Runs:** `make tests` in package directory
+
+**Includes minimum version testing:** Tests again with minimum supported dependency versions
 
 ---
 
@@ -198,7 +250,7 @@ with:
   pydantic-version: ${{ matrix.job-configs.pydantic-version }}
 ```
 
-**Runs:** Unit tests with pinned Pydantic version
+**Runs:** Unit tests with pinned Pydantic version (across compatible minor versions)
 
 ---
 
@@ -446,6 +498,8 @@ make test
 
 ### Trigger & Input Configuration
 
+**Mode:** Reusable workflow and manual dispatch
+
 ```yaml
 on:
   workflow_call:
@@ -456,13 +510,19 @@ on:
       release-version:
         type: string
         default: ""
+        description: "Expected package version. If provided, must match pyproject.toml."
       allow-prereleases:
         type: boolean
         default: false
+        description: "Pass --prerelease=allow to wheel-install steps"
       skip-prior-published-package-checks:
         type: string
         default: "none"
         # Values: none, anthropic, openai, all
+      release-notes:
+        type: string
+        default: ""
+        description: "Optional text prepended to the auto-generated release notes."
   workflow_dispatch:
     inputs:
       working-directory:
@@ -503,8 +563,6 @@ env:
 
 **Condition:** `github.repository_owner == 'langchain-ai' && (master || dangerous-nonmaster-release)`
 
-**Timeout:** Default
-
 **Outputs:**
 ```yaml
 outputs:
@@ -514,17 +572,20 @@ outputs:
 ```
 
 **Steps:**
-1. Checkout (no credentials)
-2. Setup Python + uv (cache disabled for security)
-3. Log release bypasses if enabled
+
+1. **Checkout** (no credentials)
+2. **Setup Python + uv** (cache disabled for security)
+3. **Log release bypasses** if enabled
 4. **Check version** (Python step)
    - Read `pyproject.toml`
    - Validate against input `release-version` (if provided)
-   - Query PyPI: version must not exist
+   - Query PyPI: version must not exist (PEP 440 normalization applied)
    - Fail closed if PyPI unreachable
-5. Build with `uv build` → `.whl` + `.tar.gz`
-6. Compute SHA256 checksums
-7. Upload artifact for downstream jobs
+5. **Build distribution** — `uv build` → `.whl` + `.tar.gz`
+6. **Compute SHA256 checksums**
+7. **Upload artifact** for downstream jobs
+
+**Version format:** Matches PEP 440 (e.g., `0.1.0`, `0.1.0a1`, `0.1.0rc1`)
 
 ---
 
@@ -539,14 +600,17 @@ outputs:
 ```
 
 **Steps:**
-1. Checkout with full history (`fetch-depth: 0`)
+
+1. **Checkout** with full history (`fetch-depth: 0`)
 2. **Check tags** (shell script)
    - For pre-releases: find latest base version tag or latest tag
-   - For releases: compute expected previous tag
+   - For releases: compute expected previous tag (e.g., `pkg==0.2.x` for new `0.3.0`)
    - Validate tag exists in git
+   - **Tag format:** `<pkg-name>==<version>` (e.g., `langchain-core==0.1.5`)
 3. **Generate release body**
    - Use git log between tags: `git log --format="%s" PREV_TAG..HEAD -- WORKING_DIR`
    - For first release: `git rev-list --max-parents=0 HEAD`
+   - Prepend optional user-provided release notes
 
 ---
 
@@ -561,6 +625,7 @@ outputs:
 **Cache:** Disabled (catch missing dependencies)
 
 **Steps:**
+
 1. Checkout (no credentials)
 2. Setup Python + uv (no cache)
 3. Download built wheel artifact
@@ -598,6 +663,7 @@ outputs:
 **Permissions:** `id-token: write` (trusted publishing via OIDC)
 
 **Steps:**
+
 1. Checkout (no credentials)
 2. Download wheel artifact
 3. **Verify checksums** (fail if mismatch)
@@ -617,6 +683,7 @@ outputs:
 **Matrix:** Partners: `anthropic`, `openai`
 
 **Per-partner steps:**
+
 1. Checkout LangChain (no credentials)
 2. **Check if libs/core** (exit early if not)
 3. Setup Python + uv (no cache)
@@ -649,6 +716,7 @@ outputs:
   - `deepagents` (from `langchain-ai/deepagents`)
 
 **Steps:**
+
 1. Checkout LangChain (no credentials)
 2. Checkout external project
 3. Setup Python + uv (no cache)
@@ -668,9 +736,10 @@ outputs:
 
 **Depends on:** build, release-notes, test-pypi-publish, pre-release-checks, test-dependents, test-prior-published-packages-against-new-core
 
-**Permissions:** `id-token: write` (trusted publishing)
+**Permissions:** `id-token: write` (trusted publishing via OIDC)
 
 **Steps:**
+
 1. Checkout (no credentials)
 2. Setup Python + uv (no cache)
 3. Download artifact
@@ -678,6 +747,8 @@ outputs:
 5. **Publish to pypi.org**
    - Uses `pypa/gh-action-pypi-publish@v1`
    - Verbose output and hash logging
+
+**PyPI Authentication:** Trusted Publishing (OIDC token exchange, no API keys stored)
 
 ---
 
@@ -692,6 +763,7 @@ outputs:
 **Depends on:** build, release-notes, test-pypi-publish, pre-release-checks, publish
 
 **Steps:**
+
 1. Checkout (no credentials)
 2. Setup Python + uv (no cache)
 3. Download artifact
@@ -705,7 +777,7 @@ outputs:
 
 ## Supporting Reusable Workflows
 
-### `_lint.yml`
+### `_test.yml` — Unit Testing
 
 **Inputs:**
 ```yaml
@@ -718,28 +790,17 @@ inputs:
     required: true
 ```
 
-**Execution:** Linting checks in specified directory with Python version
+**Job: `build`**
+- Setup Python + UV with cache
+- Install test dependencies
+- Run: `make tests` with current versions
+- Calculate minimum dependency versions
+- Re-test with minimum versions (if available)
+- Verify clean working directory
 
 ---
 
-### `_test.yml`
-
-**Inputs:**
-```yaml
-inputs:
-  working-directory:
-    type: string
-    required: true
-  python-version:
-    type: string
-    required: true
-```
-
-**Execution:** `make tests` with dependencies
-
----
-
-### `_test_pydantic.yml`
+### `_test_pydantic.yml` — Pydantic Version Compatibility
 
 **Inputs:**
 ```yaml
@@ -756,7 +817,7 @@ inputs:
 
 ---
 
-### `_compile_integration_test.yml`
+### `_compile_integration_test.yml` — Integration Test Compilation
 
 **Inputs:**
 ```yaml
@@ -769,11 +830,11 @@ inputs:
     required: true
 ```
 
-**Execution:** Compile integration tests: `pytest -m compile tests/integration_tests`
+**Execution:** Compile integration tests without execution: `pytest -m compile tests/integration_tests`
 
 ---
 
-### `_test_vcr.yml`
+### `_test_vcr.yml` — VCR Cassette Testing
 
 **Inputs:**
 ```yaml
@@ -786,7 +847,7 @@ inputs:
     required: true
 ```
 
-**Execution:** VCR cassette-backed tests in playback-only mode (no API keys)
+**Execution:** VCR cassette-backed tests in playback-only mode (no API keys needed)
 
 ---
 
@@ -893,7 +954,7 @@ inputs:
 - `OPENAI_API_KEY`, `AZURE_OPENAI_API_*` (7 vars)
 - `ANTHROPIC_*` (2 vars)
 - `GOOGLE_API_KEY`, `GOOGLE_SEARCH_API_KEY`, `GOOGLE_CSE_ID`
-- `MISTRAL_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `PERPLEXITY_API_KEY`
+- `MISTRAL_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `PPLX_API_KEY`
 - `TOGETHER_API_KEY`, `HUGGINGFACEHUB_API_TOKEN`
 
 **Vector Databases:**
@@ -981,16 +1042,17 @@ Serializes per-package shards to avoid race conditions on live API credentials (
 
 ### `check_diff.py`
 - Maps changed files → affected packages
-- Builds dependency graph
+- Builds dependency graph from `pyproject.toml` and `extended_testing_deps.txt`
 - Generates test matrices with Python versions and Pydantic versions
 - Handles special cases: infrastructure changes, large diffs, ignored partners
+- Identifies VCR-enabled packages and codspeed-enabled packages
 
 ### `check_prerelease_dependencies.py`
 - Validates that stable releases don't depend on prerelease versions
 
 ### `get_min_versions.py`
 - Extracts minimum supported versions from `pyproject.toml`
-- Used in pre-release testing
+- Used in pre-release testing and PR CI minimum version checks
 
 ### `test_release_options.py`
 - Validates `_release.yml` dropdown options match actual package directories
@@ -1006,6 +1068,123 @@ Serializes per-package shards to avoid race conditions on live API credentials (
 
 ### Specific Safeguards
 - **PyPI version check:** Fails closed if PyPI unreachable (aborts rather than assumes version is free)
-- **Git tag validation:** Validates before publish
+- **Git tag validation:** Validates tag exists before publish
 - **Checksum verification:** Fails if artifact checksums mismatch
 - **Prerelease dependency check:** Blocks stable releases from depending on prerelease packages
+- **Clean working directory:** Integration and extended test jobs verify no uncommitted changes
+
+---
+
+## Troubleshooting Common CI Failures
+
+### Dependency Resolution Errors
+
+**Symptom:** `ERROR: pip's dependency resolver does not currently take into account all the packages` or `No matching distribution found`
+
+**Causes:**
+- Conflicting version constraints between packages
+- Minimum version too high for the Python version being tested
+- Transitive dependency constraints
+
+**Resolution:**
+1. Check `pyproject.toml` for conflicting dependency ranges
+2. Verify `uv.lock` is up-to-date and consistent
+3. Run `uv lock --check` locally
+4. Check if a partner package has a newer minimum version requirement
+
+### Version Mismatch Failures
+
+**Symptom:** `Requested release version X does not match pyproject.toml version Y`
+
+**Causes:**
+- Manual version input doesn't match `pyproject.toml`
+- Forgot to bump version before release
+
+**Resolution:**
+1. Verify `pyproject.toml` has the correct version
+2. Re-run release workflow with correct `release-version` input (or leave blank to auto-detect)
+
+### PyPI Authentication Issues
+
+**Symptom:** `403 Forbidden` during publish, or `OIDC token invalid`
+
+**Causes:**
+- OIDC trusted publishing not configured on PyPI
+- Expired or invalid GitHub OIDC token
+- Wrong repository URL
+
+**Resolution:**
+1. Verify OIDC trusted publisher is configured on PyPI for your package
+2. Check that package name in `pyproject.toml` matches PyPI configuration
+3. Ensure `id-token: write` permission in workflow
+4. Verify not publishing to production PyPI with wrong credentials
+
+### Pre-release Checks Failing
+
+**Symptom:** `Check for prerelease versions` step fails for stable release
+
+**Causes:**
+- Transitive dependency pulled in a prerelease version
+- Parent package specified as prerelease
+
+**Resolution:**
+1. Check `pyproject.toml` and `uv.lock` for prerelease markers
+2. Use `allow-prereleases: true` input if the release itself is a prerelease
+3. Force-update `uv.lock`: `uv lock --upgrade`
+
+### Integration Test Timeouts
+
+**Symptom:** Job exceeds 30-minute timeout during integration tests
+
+**Causes:**
+- API rate limiting or service slowdowns
+- Network issues to external services
+- Test suite has new slow tests
+
+**Resolution:**
+1. Check if live APIs are experiencing issues
+2. Run integration tests manually with `python-version-override` to narrow scope
+3. Review new test code for slow operations or unnecessary retries
+
+### Artifact Download Failures
+
+**Symptom:** `Artifact download failed` in publish/mark-release jobs
+
+**Causes:**
+- Build job failed or didn't upload artifact
+- Artifact expired (24-hour retention default)
+- Storage quota exceeded
+
+**Resolution:**
+1. Check `build` job logs for failures
+2. Re-run workflow to regenerate artifact
+3. Verify sufficient storage quota in GitHub Actions
+
+---
+
+## Version Tag Format & Release Discovery
+
+### Tag Naming Convention
+
+Git tags for releases follow the format: `<pkg-name>==<version>`
+
+**Examples:**
+- `langchain-core==0.1.0`
+- `langchain==0.3.5`
+- `langchain-openai==0.0.1a1` (pre-release)
+
+### Finding Previous Releases
+
+The `release-notes` job uses this logic to find the previous release tag:
+
+**For regular releases (e.g., `0.3.0`):**
+1. Try to find a tag matching `pkg==0.2.x` (patch version match)
+2. If not found, search for latest tag matching `pkg==\d+\.\d+\.\d+` pattern
+3. If first-ever release (no previous tags), use full commit history
+
+**For pre-releases (e.g., `0.3.0a1`):**
+1. Extract base version (`0.3.0`)
+2. Look for tags matching `pkg==0.3.0` (same base version)
+3. If not found, search for latest tag matching `pkg==\d+\.\d+\.\d+` pattern
+
+This ensures accurate changelog generation between releases.
